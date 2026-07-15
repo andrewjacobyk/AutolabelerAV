@@ -1,0 +1,55 @@
+# =============================================================
+# VLA Pipeline - Python dependencies
+# Torch / torchvision are installed separately by install.bat
+# with the correct CUDA index URL and are intentionally NOT
+# listed here.
+# =============================================================
+
+# -- GUI ------------------------------------------------------
+customtkinter>=5.2.2
+Pillow>=10.3.0
+
+# -- Config / logging ----------------------------------------
+PyYAML>=6.0.1
+rich>=13.7.0
+python-dotenv>=1.0.1
+
+# -- Video / image processing --------------------------------
+opencv-python>=4.10.0.84
+imageio>=2.34.2
+imageio-ffmpeg>=0.5.1
+numpy>=1.26.4
+
+# -- Hugging Face stack --------------------------------------
+transformers>=4.44.2
+accelerate>=0.33.0
+peft>=0.12.0
+datasets>=2.20.0
+huggingface_hub>=0.24.5
+safetensors>=0.4.3
+sentencepiece>=0.2.0
+tokenizers>=0.19.1
+einops>=0.8.0
+timm>=1.0.8
+
+# -- Fine-tuning helpers -------------------------------------
+# bitsandbytes has native Windows wheels from 0.43.x onward and
+# also works on Linux. It is skipped on macOS where wheels are
+# CPU-only and rarely useful for us.
+bitsandbytes>=0.43.3; platform_system != "Darwin"
+
+# -- Validation metrics --------------------------------------
+sentence-transformers>=3.0.1
+nltk>=3.9.1
+rouge-score>=0.1.2
+scikit-learn>=1.5.1
+
+# -- GPU / system monitoring ---------------------------------
+# nvidia-ml-py is the modern replacement for the deprecated pynvml
+# package. It exposes the same pynvml module name.
+nvidia-ml-py>=12.560.30
+psutil>=5.9.8
+
+# -- Utilities -----------------------------------------------
+tqdm>=4.66.4
+requests>=2.32.3

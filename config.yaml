@@ -1,0 +1,161 @@
+# =============================================================
+# VLA Pipeline - Default configuration
+# All values can be overridden from the GUI (Settings tab).
+# Every model listed here is open-source / open-weight.
+# =============================================================
+
+paths:
+  videos_dir:  data/videos
+  frames_dir:  data/frames
+  outputs_dir: data/outputs
+  datasets_dir: data/datasets
+  models_dir:  data/models
+  logs_dir:    logs
+
+extraction:
+  # Frames per minute (video is highly autocorrelated -> keep low)
+  frames_per_minute: 6
+  # Output image format & quality
+  image_format: jpg      # jpg | png
+  jpeg_quality: 92
+  # Optional resize (long side in pixels). null = keep native size.
+  resize_long_side: 1024
+  # Skip near-duplicate frames using perceptual hashing (0.0 disables)
+  dedup_threshold: 0.0
+
+inference:
+  # Active backend: one of the keys under `models:` below.
+  active_model: moondream2
+  # Prompt used to describe each frame
+  prompt: >
+    Describe this scene in one concise sentence. Focus on the setting,
+    the main subjects and their actions. Be objective and specific.
+  # Batch size (kept small to fit in 8GB VRAM)
+  batch_size: 1
+  # Precision: fp16 | bf16 | fp32 | int8 | int4
+  precision: fp16
+  # Max new tokens per description
+  max_new_tokens: 96
+
+# =============================================================
+# Open-weight vision-language models.
+# Sizes assume fp16 unless noted; use precision: int4 for models
+# that don't fit natively on an 8 GB card.
+# =============================================================
+models:
+
+  # ---------- Western / global open-weight ----------
+  moondream2:                                 # ~1.9B, ~4 GB fp16
+    kind: local
+    hf_id: vikhyatk/moondream2
+    revision: "2024-08-26"
+    family: moondream
+    trust_remote_code: true
+  florence2-base:                             # 232M, <1 GB
+    kind: local
+    hf_id: microsoft/Florence-2-base
+    family: florence
+    trust_remote_code: true
+  florence2-large:                            # 770M, ~2 GB
+    kind: local
+    hf_id: microsoft/Florence-2-large
+    family: florence
+    trust_remote_code: true
+  smolvlm-256m:                               # 256M, <1 GB
+    kind: local
+    hf_id: HuggingFaceTB/SmolVLM-256M-Instruct
+    family: smolvlm
+    trust_remote_code: false
+  smolvlm-500m:                               # 500M, ~1.5 GB
+    kind: local
+    hf_id: HuggingFaceTB/SmolVLM-500M-Instruct
+    family: smolvlm
+    trust_remote_code: false
+  smolvlm:                                    # 2.2B, ~5 GB
+    kind: local
+    hf_id: HuggingFaceTB/SmolVLM-Instruct
+    family: smolvlm
+    trust_remote_code: false
+  blip2-opt-2.7b:                             # ~6 GB fp16 / ~3 GB int4
+    kind: local
+    hf_id: Salesforce/blip2-opt-2.7b
+    family: blip2
+    trust_remote_code: false
+  paligemma-3b-mix-448:                       # ~6 GB fp16 (gated, needs HF token)
+    kind: local
+    hf_id: google/paligemma-3b-mix-448
+    family: paligemma
+    trust_remote_code: false
+
+  # ---------- Chinese open-weight ----------
+  qwen2-vl-2b-instruct:                       # Alibaba, ~5 GB fp16
+    kind: local
+    hf_id: Qwen/Qwen2-VL-2B-Instruct
+    family: qwenvl
+    trust_remote_code: true
+  qwen2-vl-7b-instruct:                       # Alibaba, ~7 GB int4 / ~15 GB fp16
+    kind: local
+    hf_id: Qwen/Qwen2-VL-7B-Instruct
+    family: qwenvl
+    trust_remote_code: true
+  qwen2_5-vl-3b-instruct:                     # Alibaba, ~7 GB fp16
+    kind: local
+    hf_id: Qwen/Qwen2.5-VL-3B-Instruct
+    family: qwenvl
+    trust_remote_code: true
+  qwen2_5-vl-7b-instruct:                     # Alibaba, ~7 GB int4 / ~15 GB fp16
+    kind: local
+    hf_id: Qwen/Qwen2.5-VL-7B-Instruct
+    family: qwenvl
+    trust_remote_code: true
+  internvl2_5-1b:                             # Shanghai AI Lab, ~3 GB fp16
+    kind: local
+    hf_id: OpenGVLab/InternVL2_5-1B
+    family: internvl
+    trust_remote_code: true
+  internvl2_5-2b:                             # Shanghai AI Lab, ~5 GB fp16
+    kind: local
+    hf_id: OpenGVLab/InternVL2_5-2B
+    family: internvl
+    trust_remote_code: true
+  internvl2_5-4b:                             # Shanghai AI Lab, ~7 GB int4 recommended
+    kind: local
+    hf_id: OpenGVLab/InternVL2_5-4B
+    family: internvl
+    trust_remote_code: true
+  internvl3-2b:                               # Shanghai AI Lab (v3), ~5 GB fp16
+    kind: local
+    hf_id: OpenGVLab/InternVL3-2B
+    family: internvl
+    trust_remote_code: true
+  minicpm-v-2_6:                              # OpenBMB / Tsinghua, ~7 GB int4 (8B model)
+    kind: local
+    hf_id: openbmb/MiniCPM-V-2_6
+    family: minicpm
+    trust_remote_code: true
+
+finetune:
+  # Base model to fine-tune (must be a local model above).
+  # The bundled LoRA recipe targets the Florence-2 family, which has
+  # the most stable local training API.
+  base_model: florence2-base
+  method: lora           # lora | full
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "v_proj"]
+  epochs: 3
+  learning_rate: 1.0e-4
+  batch_size: 1
+  gradient_accumulation: 8
+  eval_ratio: 0.1
+  output_dir: data/models/finetuned
+
+validation:
+  # Metrics computed vs. reference JSON
+  metrics: [bleu, rougeL, cosine]
+  sentence_embed_model: sentence-transformers/all-MiniLM-L6-v2
+
+logging:
+  level: INFO
+  console: true
