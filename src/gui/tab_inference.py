@@ -10,7 +10,7 @@ import customtkinter as ctk
 
 from ..core.config import AppConfig
 from ..core.inference import run_inference_on_frames, run_inference_on_many
-from ..core.model_hub import download_from_spec
+from ..core.model_hub import cache_status_for_config, download_from_spec, is_cached
 from ..core.resources import estimate, format_short, format_table
 from ..utils.gpu import read_gpus
 from ..utils.logger import get_logger
@@ -25,6 +25,7 @@ class InferenceTab(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self.config_obj = config
         self.worker = Worker()
+        self._last_timing: dict | None = None
         self._build()
 
     # ------------------------------------------------------------------
@@ -115,9 +116,34 @@ class InferenceTab(ctk.CTkFrame):
             text_color=("#2b6fd5", "#7BAAF7"),
             font=ctk.CTkFont(size=12, weight="bold"),
         )
-        self.resource_info.pack(anchor="w", padx=10, pady=(0, 6))
+        self.resource_info.pack(anchor="w", padx=10, pady=(0, 4))
+
+        # ----- Local cache status for all models --------------------
+        cache_hdr = ctk.CTkFrame(pf, fg_color="transparent")
+        cache_hdr.pack(fill="x", padx=10, pady=(4, 0))
+        ctk.CTkLabel(
+            cache_hdr, text="Local weights:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            cache_hdr, text="Refresh", width=70, height=24,
+            command=self._refresh_cache_list,
+        ).pack(side="right", padx=4)
+
+        self.cache_list = ctk.CTkTextbox(pf, height=72, font=("Consolas", 10))
+        self.cache_list.pack(fill="x", padx=8, pady=(2, 6))
+        self.cache_list.configure(state="disabled")
+
+        # ----- Timing from last inference run -----------------------
+        self.timing_info = ctk.CTkLabel(
+            pf, text="", anchor="w", justify="left",
+            text_color=("#1a7f4b", "#5fd68a"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.timing_info.pack(anchor="w", padx=10, pady=(0, 6))
 
         self._refresh_model_info()
+        self._refresh_cache_list()
 
         # ----- Buttons -------------------------------------------------
         bf = ctk.CTkFrame(self, fg_color="transparent")
@@ -194,6 +220,41 @@ class InferenceTab(ctk.CTkFrame):
 
         self.resource_info.configure(text=text, text_color=colour)
 
+        # Highlight selected model cache state in the status line.
+        hf_id = spec.get("hf_id", "")
+        cached = is_cached(hf_id, spec.get("revision"))
+        status = "downloaded locally" if cached else "needs download"
+        self.model_info.configure(text=info + f"  |  weights: {status}")
+
+    def _refresh_cache_list(self) -> None:
+        models = self.config_obj.get("models", {}) or {}
+        status = cache_status_for_config(models)
+        lines = []
+        for mid in self.config_obj.all_model_ids():
+            st = status.get(mid, "missing")
+            icon = "[OK] " if st == "cached" else "[--] "
+            lines.append(f"{icon}{mid}")
+        cached_n = sum(1 for s in status.values() if s == "cached")
+        header = f"{cached_n}/{len(lines)} models ready locally\n"
+        self.cache_list.configure(state="normal")
+        self.cache_list.delete("1.0", "end")
+        self.cache_list.insert("end", header + "\n".join(lines))
+        self.cache_list.configure(state="disabled")
+
+    def _set_timing_display(self, timing: dict | None) -> None:
+        if not timing:
+            self.timing_info.configure(text="")
+            return
+        elapsed = timing.get("elapsed_sec", 0)
+        n = timing.get("num_frames", 0)
+        avg = timing.get("avg_sec_per_frame", 0)
+        self.timing_info.configure(
+            text=(
+                f"Last run: {elapsed:.1f}s total  |  {n} frame(s)  |  "
+                f"avg {avg:.2f}s per image"
+            )
+        )
+
     def _show_resource_table(self) -> None:
         models = self.config_obj.get("models", {}) or {}
         table = format_table(models)
@@ -253,6 +314,8 @@ class InferenceTab(ctk.CTkFrame):
             )
         else:
             self.progress.set_status("Download complete")
+        self._refresh_cache_list()
+        self._refresh_model_info()
 
     # ------------------------------------------------------------------
     def _run(self, batch: bool) -> None:
@@ -327,13 +390,16 @@ class InferenceTab(ctk.CTkFrame):
         self.btn_single.configure(state="disabled")
         self.btn_batch.configure(state="disabled")
         self.btn_stop.configure(state="normal")
+        self._run_batch = batch
+        self._run_frames = frames
+        self._run_outputs = outputs
 
         def _progress(done: int, total: int, msg: str) -> None:
             self.after(0, lambda: self.progress.set_progress(done, total, msg))
 
         def _job():
             if batch:
-                run_inference_on_many(
+                return run_inference_on_many(
                     frames_root=frames,
                     outputs_dir=outputs,
                     model_id=model_id,
@@ -344,19 +410,19 @@ class InferenceTab(ctk.CTkFrame):
                     progress=_progress,
                     should_stop=self.worker.should_stop,
                 )
-            else:
-                out_json = Path(outputs) / f"{Path(frames).name}.json"
-                run_inference_on_frames(
-                    frames_dir=frames,
-                    output_json=out_json,
-                    model_id=model_id,
-                    model_spec=spec,
-                    prompt=prompt,
-                    precision=precision,
-                    max_new_tokens=max_new_tokens,
-                    progress=_progress,
-                    should_stop=self.worker.should_stop,
-                )
+            out_json = Path(outputs) / f"{Path(frames).name}.json"
+            run_inference_on_frames(
+                frames_dir=frames,
+                output_json=out_json,
+                model_id=model_id,
+                model_spec=spec,
+                prompt=prompt,
+                precision=precision,
+                max_new_tokens=max_new_tokens,
+                progress=_progress,
+                should_stop=self.worker.should_stop,
+            )
+            return out_json
 
         def _done(err):
             self.after(0, lambda: self._on_done(err))
@@ -374,5 +440,49 @@ class InferenceTab(ctk.CTkFrame):
         if err is not None:
             log.exception("Inference failed", exc_info=err)
             self.progress.set_status(f"Error: {err}")
+            self._set_timing_display(None)
         else:
             self.progress.set_status("Done")
+            self._load_timing_from_outputs()
+
+    def _load_timing_from_outputs(self) -> None:
+        """Read timing stats from the JSON written by the last inference run."""
+        from ..core import dataset as ds
+
+        try:
+            if getattr(self, "_run_batch", False):
+                outputs = Path(self._run_outputs)
+                total_sec = 0.0
+                total_frames = 0
+                for jp in sorted(outputs.glob("*.json")):
+                    if "ratings" in jp.parts or "reports" in jp.parts:
+                        continue
+                    doc = ds.load(jp)
+                    t = doc.get("timing") or {}
+                    total_sec += float(t.get("elapsed_sec", doc.get("elapsed_sec", 0)))
+                    total_frames += int(t.get("num_frames", len(doc.get("frames", []))))
+                if total_frames:
+                    self._set_timing_display({
+                        "elapsed_sec": round(total_sec, 3),
+                        "num_frames": total_frames,
+                        "avg_sec_per_frame": round(total_sec / total_frames, 3),
+                    })
+                return
+
+            frames = Path(self._run_frames)
+            out_json = Path(self._run_outputs) / f"{frames.name}.json"
+            if out_json.exists():
+                doc = ds.load(out_json)
+                timing = doc.get("timing")
+                if timing:
+                    self._set_timing_display(timing)
+                elif doc.get("elapsed_sec"):
+                    n = len(doc.get("frames", []))
+                    elapsed = float(doc["elapsed_sec"])
+                    self._set_timing_display({
+                        "elapsed_sec": elapsed,
+                        "num_frames": n,
+                        "avg_sec_per_frame": round(elapsed / n, 3) if n else 0,
+                    })
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not read timing from output JSON: %s", exc)
