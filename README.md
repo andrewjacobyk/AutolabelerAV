@@ -358,8 +358,15 @@ for the CUDA driver. Disk cache is always the fp16 shard size
   bundled LoRA recipe in this build.
 
 ---
+## 11. Features
+-**Downloading a Model**
+<img width="1165" height="991" alt="image" src="https://github.com/user-attachments/assets/719934f2-3744-4d75-8407-9baaf208a0ca" />
+--**Demo: Inference**
+<img width="1171" height="836" alt="VLM Pipeline" src="https://github.com/user-attachments/assets/b311cfa9-7255-4016-b7f1-9d019f47dbe0" />
 
-## 11. License
+
+
+## . License
 
 Code in this repository is released under the MIT License. Model
 weights retain their own licenses (see each model card on
