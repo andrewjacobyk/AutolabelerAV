@@ -28,8 +28,11 @@ inference:
   active_model: moondream2
   # Prompt used to describe each frame
   prompt: >
-    Describe this scene in one concise sentence. Focus on the setting,
-    the main subjects and their actions. Be objective and specific.
+   Describe the scene for ADAS/AV applications. In a concise way tell: road type, the traffic participants, their actions and the road conditions.
+   Do not describe the scenary in detail, just the main points. 
+   If there are special situations like pedestrian crossing, other vehicle doing maneuvers describe it briefly.
+   If there are special conditions like tunnel, bridges, overpasses, carparks, construction zone, some obstacle on the road or some non obstacle on the road describe it briefly.
+   If weather is not clear describe it, examples: clear, foggy, rainy, snowing, wet road, floating, icy, etc.
   # Batch size (kept small to fit in 8GB VRAM)
   batch_size: 1
   # Precision: fp16 | bf16 | fp32 | int8 | int4

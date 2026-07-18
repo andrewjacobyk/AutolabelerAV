@@ -1,6 +1,5 @@
 .venv/
 logs/
-data/outputs/
 *.safetensors
 *.pt
 *.pth.git_backup/
