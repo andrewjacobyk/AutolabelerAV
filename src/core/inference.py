@@ -97,22 +97,35 @@ def run_inference_on_frames(
                 continue
             try:
                 image = VLMBase.open_image(img_path)
+                t0 = time.perf_counter()
                 description = model.describe(image, prompt)
+                infer_sec = time.perf_counter() - t0
             except Exception as exc:  # noqa: BLE001
                 log.exception("Inference failed for %s: %s", img_path.name, exc)
                 description = f"[error: {exc}]"
+                infer_sec = 0.0
 
             entry = dict(frame)
             entry["description"] = description
+            entry["inference_sec"] = round(infer_sec, 3)
             ds.add_frame(doc, entry)
 
             if progress:
                 progress(i + 1, total, f"{video_name}: {frame.get('timestamp_hhmmss', '')}")
 
         elapsed = time.time() - started
+        n_done = len(doc.get("frames", []))
         doc["elapsed_sec"] = round(elapsed, 3)
+        doc["timing"] = {
+            "elapsed_sec": round(elapsed, 3),
+            "num_frames": n_done,
+            "avg_sec_per_frame": round(elapsed / n_done, 3) if n_done else 0.0,
+        }
         ds.save(doc, output_json)
-        log.info("Inference done in %.1fs -> %s", elapsed, output_json)
+        log.info(
+            "Inference done in %.1fs (avg %.2fs/frame) -> %s",
+            elapsed, doc["timing"]["avg_sec_per_frame"], output_json,
+        )
         return Path(output_json)
     finally:
         if own_model and model is not None:

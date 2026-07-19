@@ -121,3 +121,16 @@ def download_from_spec(spec: dict, progress: Optional[ProgressCb] = None) -> Pat
         spec.get("revision"),
         progress=progress,
     )
+
+
+def cache_status(hf_id: str, revision: Optional[str] = None) -> str:
+    """Return ``cached`` or ``missing`` for a Hugging Face model id."""
+    return "cached" if is_cached(hf_id, revision) else "missing"
+
+
+def cache_status_for_config(models: dict) -> Dict[str, str]:
+    """Map every config model key to ``cached`` / ``missing``."""
+    out: Dict[str, str] = {}
+    for mid, spec in (models or {}).items():
+        out[mid] = cache_status(spec.get("hf_id", ""), spec.get("revision"))
+    return out
