@@ -14,7 +14,10 @@ from ..core.config import AppConfig
 from ..core.ratings import (
     aggregate_ratings,
     build_comparison_session,
+    find_paired_json,
     frame_image_path,
+    list_synced_json_pairs,
+    pair_index_for_json,
     save_frame_rating,
     summarize_session,
 )
@@ -35,6 +38,10 @@ class ValidateTab(ctk.CTkFrame):
         self._review_session: dict | None = None
         self._review_index = 0
         self._ctk_image = None
+        self._pil_image = None
+        self._sync_pairs: list[tuple[Path, Path]] = []
+        self._sync_index = -1
+        self._sync_busy = False
         self._build()
 
     # ------------------------------------------------------------------
@@ -113,17 +120,41 @@ class ValidateTab(ctk.CTkFrame):
 
         pf = ctk.CTkFrame(parent)
         pf.pack(fill="x", padx=8, pady=4)
+        outputs_root = str(self.config_obj.path_for("outputs_dir"))
+        self.pick_out_a = PathPicker(
+            pf, label="Model A outputs folder:", kind="dir",
+            initial=outputs_root,
+        )
+        self.pick_out_a.pack(fill="x", padx=6, pady=4)
+        self.pick_out_b = PathPicker(
+            pf, label="Model B outputs folder:", kind="dir",
+            initial=outputs_root,
+        )
+        self.pick_out_b.pack(fill="x", padx=6, pady=4)
+
+        sync_row = ctk.CTkFrame(pf, fg_color="transparent")
+        sync_row.pack(fill="x", padx=6, pady=(0, 4))
+        self.chk_sync = ctk.CTkCheckBox(
+            sync_row, text="Sync outputs (auto-pair JSONs by filename)",
+            command=self._on_sync_toggle,
+        )
+        self.chk_sync.select()
+        self.chk_sync.pack(side="left", padx=4)
+
         jf = [("JSON", "*.json")]
         self.pick_rev_a = PathPicker(
             pf, label="Model A JSON:", kind="openfile", pattern=jf,
-            initial=str(self.config_obj.path_for("outputs_dir")),
+            initial=outputs_root,
         )
         self.pick_rev_a.pack(fill="x", padx=6, pady=4)
         self.pick_rev_b = PathPicker(
             pf, label="Model B JSON:", kind="openfile", pattern=jf,
-            initial=str(self.config_obj.path_for("outputs_dir")),
+            initial=outputs_root,
         )
         self.pick_rev_b.pack(fill="x", padx=6, pady=4)
+        self.pick_rev_a.var.trace_add("write", lambda *_: self._on_json_a_changed())
+        self.pick_out_a.var.trace_add("write", lambda *_: self._on_sync_folders_changed())
+        self.pick_out_b.var.trace_add("write", lambda *_: self._on_sync_folders_changed())
 
         bf = ctk.CTkFrame(parent, fg_color="transparent")
         bf.pack(fill="x", padx=8, pady=4)
@@ -132,8 +163,23 @@ class ValidateTab(ctk.CTkFrame):
         ctk.CTkButton(bf, text="Aggregate all videos", width=160,
                         command=self._on_aggregate).pack(side="left", padx=4)
 
-        body = ctk.CTkFrame(parent)
-        body.pack(fill="both", expand=True, padx=8, pady=4)
+        self.video_nav = ctk.CTkFrame(parent, fg_color="transparent")
+        self.video_nav.pack(fill="x", padx=8, pady=(0, 4))
+        ctk.CTkButton(
+            self.video_nav, text="◀ Prev video", width=110,
+            command=lambda: self._step_sync_video(-1),
+        ).pack(side="left", padx=4)
+        self.video_counter = ctk.CTkLabel(self.video_nav, text="")
+        self.video_counter.pack(side="left", padx=8)
+        ctk.CTkButton(
+            self.video_nav, text="Next video ▶", width=110,
+            command=lambda: self._step_sync_video(1),
+        ).pack(side="left", padx=4)
+        self.video_nav.pack_forget()
+
+        self._review_body = ctk.CTkFrame(parent)
+        self._review_body.pack(fill="both", expand=True, padx=8, pady=4)
+        body = self._review_body
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=2)
         body.grid_rowconfigure(0, weight=1)
@@ -165,6 +211,12 @@ class ValidateTab(ctk.CTkFrame):
         self.lbl_model_a = ctk.CTkLabel(right, text="Model A", anchor="w",
                                         font=ctk.CTkFont(weight="bold"))
         self.lbl_model_a.pack(anchor="w", padx=10, pady=(8, 0))
+        self.lbl_meta_a = ctk.CTkLabel(
+            right, text="", anchor="w", justify="left", wraplength=520,
+            font=("Consolas", 10),
+            text_color=("#555555", "#B0B0B0"),
+        )
+        self.lbl_meta_a.pack(anchor="w", padx=10, pady=(0, 4))
         self.txt_desc_a = ctk.CTkTextbox(right, height=80, wrap="word")
         self.txt_desc_a.pack(fill="x", padx=10, pady=4)
         self.txt_desc_a.configure(state="disabled")
@@ -172,6 +224,12 @@ class ValidateTab(ctk.CTkFrame):
         self.lbl_model_b = ctk.CTkLabel(right, text="Model B", anchor="w",
                                         font=ctk.CTkFont(weight="bold"))
         self.lbl_model_b.pack(anchor="w", padx=10, pady=(8, 0))
+        self.lbl_meta_b = ctk.CTkLabel(
+            right, text="", anchor="w", justify="left", wraplength=520,
+            font=("Consolas", 10),
+            text_color=("#555555", "#B0B0B0"),
+        )
+        self.lbl_meta_b.pack(anchor="w", padx=10, pady=(0, 4))
         self.txt_desc_b = ctk.CTkTextbox(right, height=80, wrap="word")
         self.txt_desc_b.pack(fill="x", padx=10, pady=4)
         self.txt_desc_b.configure(state="disabled")
@@ -207,6 +265,8 @@ class ValidateTab(ctk.CTkFrame):
             text_color=("#2b6fd5", "#7BAAF7"),
         )
         self.review_summary.pack(anchor="w", padx=10, pady=(8, 8))
+
+        self.after(100, self._try_auto_load_from_folders)
 
     # ------------------------------------------------------------------
     # Auto metrics handlers
@@ -288,7 +348,154 @@ class ValidateTab(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # Visual review handlers
     # ------------------------------------------------------------------
+    def _sync_enabled(self) -> bool:
+        return bool(self.chk_sync.get())
+
+    def _rebuild_sync_pairs(self) -> None:
+        if not self._sync_enabled():
+            self._sync_pairs = []
+            self._sync_index = -1
+            self._update_video_nav()
+            return
+        dir_a = self.pick_out_a.get()
+        dir_b = self.pick_out_b.get()
+        if not dir_a or not dir_b:
+            self._sync_pairs = []
+            self._sync_index = -1
+            self._update_video_nav()
+            return
+        self._sync_pairs = list_synced_json_pairs(dir_a, dir_b)
+        current = self.pick_rev_a.get()
+        if current:
+            idx = pair_index_for_json(self._sync_pairs, current)
+            self._sync_index = idx if idx >= 0 else 0
+        elif self._sync_pairs:
+            self._sync_index = 0
+        else:
+            self._sync_index = -1
+        self._update_video_nav()
+
+    def _update_video_nav(self) -> None:
+        if self._sync_enabled() and self._sync_pairs:
+            if not self.video_nav.winfo_ismapped():
+                self.video_nav.pack(fill="x", padx=8, pady=(0, 4),
+                                   before=self._review_body)
+            idx = max(0, min(self._sync_index, len(self._sync_pairs) - 1))
+            stem = self._sync_pairs[idx][0].stem
+            self.video_counter.configure(
+                text=f"Video {idx + 1} / {len(self._sync_pairs)}  ({stem})"
+            )
+        else:
+            self.video_nav.pack_forget()
+            self.video_counter.configure(text="")
+
+    def _on_sync_toggle(self) -> None:
+        self._rebuild_sync_pairs()
+        if self._sync_enabled():
+            self._try_auto_load_from_folders()
+
+    def _on_sync_folders_changed(self) -> None:
+        if self._sync_busy:
+            return
+        self._rebuild_sync_pairs()
+        if self._sync_enabled():
+            self._try_auto_load_from_folders()
+
+    def _both_output_folders_set(self) -> bool:
+        return bool(self.pick_out_a.get().strip() and self.pick_out_b.get().strip())
+
+    def _try_auto_load_from_folders(self) -> None:
+        """When sync is on and both output folders are set, load the first pair."""
+        if not self._sync_enabled() or not self._both_output_folders_set():
+            return
+        self._rebuild_sync_pairs()
+        if not self._sync_pairs:
+            return
+        idx = self._sync_index if 0 <= self._sync_index < len(self._sync_pairs) else 0
+        self._apply_sync_pair(idx, auto_load=True)
+
+    @staticmethod
+    def _format_model_header(side: str, meta: dict) -> str:
+        model_id = meta.get("id", side)
+        parts = [f"Model {side}: {model_id}"]
+        precision = meta.get("precision")
+        if precision:
+            parts.append(str(precision))
+        avg = meta.get("avg_inference_sec")
+        if avg is not None:
+            parts.append(f"avg {avg:.2f}s/frame")
+        return "  |  ".join(parts)
+
+    @staticmethod
+    def _format_model_meta(meta: dict) -> str:
+        prompt = (meta.get("prompt") or "").strip()
+        if not prompt:
+            return "Prompt: (not recorded in JSON)"
+        if len(prompt) > 240:
+            prompt = prompt[:237] + "..."
+        return f"Prompt: {prompt}"
+
+    def _on_json_a_changed(self) -> None:
+        if self._sync_busy or not self._sync_enabled():
+            return
+        self._sync_pair_from_a(auto_load=False)
+
+    def _sync_pair_from_a(self, *, auto_load: bool) -> None:
+        json_a = self.pick_rev_a.get()
+        if not json_a:
+            return
+        self._rebuild_sync_pairs()
+        idx = pair_index_for_json(self._sync_pairs, json_a)
+        if idx < 0:
+            paired = find_paired_json(json_a, self.pick_out_b.get())
+            if paired is None:
+                self._update_video_nav()
+                return
+            self._sync_busy = True
+            try:
+                self.pick_rev_b.set(str(paired))
+            finally:
+                self._sync_busy = False
+            idx = pair_index_for_json(self._sync_pairs, json_a)
+        if idx >= 0:
+            self._sync_index = idx
+            self._update_video_nav()
+        if auto_load:
+            self._on_load_review()
+
+    def _apply_sync_pair(self, index: int, *, auto_load: bool) -> None:
+        if not self._sync_pairs:
+            return
+        index = max(0, min(index, len(self._sync_pairs) - 1))
+        json_a, json_b = self._sync_pairs[index]
+        self._sync_index = index
+        self._sync_busy = True
+        try:
+            self.pick_rev_a.set(str(json_a))
+            self.pick_rev_b.set(str(json_b))
+        finally:
+            self._sync_busy = False
+        self._update_video_nav()
+        if auto_load:
+            self._on_load_review()
+
+    def _step_sync_video(self, delta: int) -> None:
+        if not self._sync_pairs:
+            self._rebuild_sync_pairs()
+        if not self._sync_pairs:
+            messagebox.showinfo(
+                "No synced videos",
+                "Enable Sync outputs and choose two output folders that contain "
+                "matching JSON filenames.",
+            )
+            return
+        start = self._sync_index if self._sync_index >= 0 else 0
+        nxt = (start + delta) % len(self._sync_pairs)
+        self._apply_sync_pair(nxt, auto_load=True)
+
     def _on_load_review(self) -> None:
+        if self._sync_enabled():
+            self._sync_pair_from_a(auto_load=False)
         try:
             session = build_comparison_session(
                 self.pick_rev_a.get(), self.pick_rev_b.get()
@@ -302,10 +509,12 @@ class ValidateTab(ctk.CTkFrame):
 
         self._review_session = session
         self._review_index = 0
-        model_a = session["model_a"]["id"]
-        model_b = session["model_b"]["id"]
-        self.lbl_model_a.configure(text=f"Model A: {model_a}")
-        self.lbl_model_b.configure(text=f"Model B: {model_b}")
+        meta_a = session["model_a"]
+        meta_b = session["model_b"]
+        self.lbl_model_a.configure(text=self._format_model_header("A", meta_a))
+        self.lbl_model_b.configure(text=self._format_model_header("B", meta_b))
+        self.lbl_meta_a.configure(text=self._format_model_meta(meta_a))
+        self.lbl_meta_b.configure(text=self._format_model_meta(meta_b))
         self._show_review_frame()
         self._update_review_summary()
 
@@ -326,26 +535,42 @@ class ValidateTab(ctk.CTkFrame):
                  f"time: {row.get('timestamp_hhmmss')} ({row.get('timestamp_sec')}s)"
         )
 
-        # Image
-        img_path = frame_image_path(self._review_session, idx)
-        if img_path and img_path.exists():
-            pil = Image.open(img_path).convert("RGB")
-            max_w, max_h = 360, 270
-            pil.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
-            self._ctk_image = ctk.CTkImage(light_image=pil, dark_image=pil,
-                                           size=pil.size)
-            self.img_label.configure(image=self._ctk_image, text="")
-        else:
-            self._ctk_image = None
-            self.img_label.configure(image=None, text="(image not found)")
-
-        # Descriptions
+        # Descriptions (before image so a preview failure cannot block text)
         for tb, key in ((self.txt_desc_a, "description_a"),
                         (self.txt_desc_b, "description_b")):
             tb.configure(state="normal")
             tb.delete("1.0", "end")
             tb.insert("1.0", row.get(key, ""))
             tb.configure(state="disabled")
+
+        # Image — CTkImage requires a PIL.Image reference kept alive.
+        img_path = frame_image_path(self._review_session, idx)
+        self._pil_image = None
+        self._ctk_image = None
+        if img_path and img_path.is_file():
+            try:
+                pil = Image.open(img_path).convert("RGB")
+                pil.thumbnail((360, 270), Image.Resampling.LANCZOS)
+                self._pil_image = pil
+                self._ctk_image = ctk.CTkImage(
+                    light_image=self._pil_image,
+                    dark_image=self._pil_image,
+                    size=self._pil_image.size,
+                )
+                self.img_label.configure(image=self._ctk_image, text="")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Failed to load preview image %s: %s", img_path, exc)
+                self.img_label.configure(
+                    image=None,
+                    text=f"(image load error)\n{row.get('file')}\n{exc}",
+                )
+        else:
+            tried = self._review_session.get("frames_dirs") or []
+            hint = tried[0] if tried else "(no frames_dir in JSON)"
+            self.img_label.configure(
+                image=None,
+                text=f"(image not found)\n{row.get('file')}\n{hint}",
+            )
 
         # Existing ratings
         ra = row.get("rating_a")

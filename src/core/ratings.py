@@ -47,6 +47,64 @@ def save_comparison(doc: Dict[str, Any], path: Path | str) -> Path:
     return path
 
 
+def _avg_inference_sec(doc: Dict[str, Any]) -> Optional[float]:
+    """Return average seconds per frame from timing metadata or frame records."""
+    timing = doc.get("timing") or {}
+    avg = timing.get("avg_sec_per_frame")
+    if avg is not None:
+        return float(avg)
+
+    frames = doc.get("frames") or []
+    secs = [
+        float(f["inference_sec"])
+        for f in frames
+        if f.get("inference_sec") is not None
+    ]
+    if secs:
+        return sum(secs) / len(secs)
+
+    elapsed = doc.get("elapsed_sec")
+    if elapsed is not None and frames:
+        return float(elapsed) / len(frames)
+    return None
+
+
+def _model_run_meta(doc: Dict[str, Any]) -> Dict[str, Any]:
+    model = doc.get("model") or {}
+    avg_sec = _avg_inference_sec(doc)
+    return {
+        "prompt": (doc.get("prompt") or "").strip(),
+        "avg_inference_sec": round(avg_sec, 3) if avg_sec is not None else None,
+        "precision": model.get("precision"),
+        "hf_id": model.get("hf_id"),
+    }
+
+
+def _collect_frames_dirs(*docs: Dict[str, Any], video_stem: str) -> List[str]:
+    """Gather every plausible frames directory for image lookup."""
+    dirs: List[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str | Path | None) -> None:
+        if not raw:
+            return
+        p = resolve(raw)
+        key = str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            dirs.append(str(p))
+
+    for doc in docs:
+        add((doc.get("extraction") or {}).get("frames_dir"))
+        out_dir = (doc.get("extraction") or {}).get("output_dir")
+        add(out_dir)
+
+    if video_stem:
+        add(Path("data/frames") / video_stem)
+
+    return dirs
+
+
 def build_comparison_session(
     json_a: Path | str,
     json_b: Path | str,
@@ -57,9 +115,8 @@ def build_comparison_session(
     model_a_id = (doc_a.get("model") or {}).get("id", "model_a")
     model_b_id = (doc_b.get("model") or {}).get("id", "model_b")
     video_stem = Path(json_a).stem
-    frames_dir = (doc_a.get("extraction") or {}).get("frames_dir") or (
-        (doc_b.get("extraction") or {}).get("frames_dir")
-    )
+    frames_dirs = _collect_frames_dirs(doc_a, doc_b, video_stem=video_stem)
+    frames_dir = frames_dirs[0] if frames_dirs else None
 
     aligned = _align(doc_a, doc_b)
     existing_ratings: Dict[str, Dict[str, Any]] = {}
@@ -96,29 +153,98 @@ def build_comparison_session(
         "model_a": {
             "id": model_a_id,
             "json_path": str(resolve(json_a)),
+            **_model_run_meta(doc_a),
         },
         "model_b": {
             "id": model_b_id,
             "json_path": str(resolve(json_b)),
+            **_model_run_meta(doc_b),
         },
         "video_stem": video_stem,
-        "frames_dir": str(resolve(frames_dir)) if frames_dir else None,
+        "frames_dir": frames_dir,
+        "frames_dirs": frames_dirs,
         "comparisons": comparisons,
     }
 
 
 def frame_image_path(session: Dict[str, Any], index: int) -> Optional[Path]:
-    frames_dir = session.get("frames_dir")
-    if not frames_dir:
-        return None
     comps = session.get("comparisons", [])
     if index < 0 or index >= len(comps):
         return None
     fname = comps[index].get("file")
     if not fname:
         return None
-    p = Path(frames_dir) / fname
-    return p if p.exists() else None
+
+    candidates: List[Path] = []
+    seen: set[str] = set()
+
+    def add_dir(raw: str | Path | None) -> None:
+        if not raw:
+            return
+        p = resolve(raw)
+        key = str(p).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(p)
+
+    for d in session.get("frames_dirs") or []:
+        add_dir(d)
+    add_dir(session.get("frames_dir"))
+
+    video_stem = session.get("video_stem")
+    if video_stem:
+        add_dir(Path("data/frames") / video_stem)
+
+    for directory in candidates:
+        path = directory / fname
+        if path.is_file():
+            return path
+    return None
+
+
+def list_output_jsons(folder: Path | str) -> Dict[str, Path]:
+    """Map video stem -> JSON path for top-level output files in a folder."""
+    root = resolve(folder)
+    if not root.is_dir():
+        return {}
+    return {
+        p.stem: p
+        for p in sorted(root.glob("*.json"))
+        if p.is_file()
+    }
+
+
+def list_synced_json_pairs(
+    dir_a: Path | str,
+    dir_b: Path | str,
+) -> List[Tuple[Path, Path]]:
+    """Return (json_a, json_b) pairs with matching filenames in both folders."""
+    a_map = list_output_jsons(dir_a)
+    b_map = list_output_jsons(dir_b)
+    stems = sorted(set(a_map) & set(b_map))
+    return [(a_map[s], b_map[s]) for s in stems]
+
+
+def find_paired_json(
+    json_path: Path | str,
+    other_dir: Path | str,
+) -> Optional[Path]:
+    """Find the JSON with the same stem in ``other_dir``."""
+    stem = Path(json_path).stem
+    return list_output_jsons(other_dir).get(stem)
+
+
+def pair_index_for_json(
+    pairs: List[Tuple[Path, Path]],
+    json_path: Path | str,
+) -> int:
+    """Return the index of ``json_path`` in ``pairs``, or -1."""
+    target = resolve(json_path)
+    for i, (a, _) in enumerate(pairs):
+        if resolve(a) == target:
+            return i
+    return -1
 
 
 def save_frame_rating(
