@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# VLA Pipeline - Linux/macOS installer
+# VLM Pipeline - Linux/macOS installer
 # ============================================================
 set -euo pipefail
 

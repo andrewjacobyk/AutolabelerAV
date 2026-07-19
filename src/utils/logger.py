@@ -66,7 +66,7 @@ def setup_logging(
         log_dir = Path(log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         fh = logging.handlers.RotatingFileHandler(
-            log_dir / "vla_pipeline.log",
+            log_dir / "vlm_pipeline.log",
             maxBytes=2_000_000,
             backupCount=5,
             encoding="utf-8",

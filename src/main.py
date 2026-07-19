@@ -1,4 +1,4 @@
-"""Entry point for the VLA Pipeline GUI."""
+"""Entry point for the VLM Pipeline GUI."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .utils.paths import PROJECT_ROOT
 
 
 def _parse_args(argv):
-    p = argparse.ArgumentParser("vla-pipeline")
+    p = argparse.ArgumentParser("vlm-pipeline")
     p.add_argument("--config", default=str(DEFAULT_CONFIG_PATH),
                    help="Path to config.yaml")
     p.add_argument("--headless", action="store_true",
@@ -40,7 +40,7 @@ def main(argv=None) -> int:
         console=bool(cfg.get("logging.console", True)),
     )
     log = get_logger(__name__)
-    log.info("VLA Pipeline starting (project=%s)", PROJECT_ROOT)
+    log.info("VLM Pipeline starting (project=%s)", PROJECT_ROOT)
 
     # Route HuggingFace cache into the project's models folder.
     models_dir = cfg.path_for("models_dir")

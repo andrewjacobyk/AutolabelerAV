@@ -3,3 +3,4 @@ logs/
 *.safetensors
 *.pt
 *.pth.git_backup/
+*.pyc

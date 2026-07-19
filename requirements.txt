@@ -1,5 +1,5 @@
 # =============================================================
-# VLA Pipeline - Python dependencies
+# VLM Pipeline - Python dependencies
 # Torch / torchvision are installed separately by install.bat
 # with the correct CUDA index URL and are intentionally NOT
 # listed here.

@@ -1,4 +1,4 @@
-# VLA Pipeline
+# VLM Pipeline
 
 A **100% local, 100% open-weight** GUI application for building,
 testing, fine-tuning and validating a Vision-Language Model pipeline
@@ -56,7 +56,7 @@ CPU-only operation is supported as a fallback but will be very slow.
 ### Windows
 
 ```powershell
-cd C:\Users\<you>\Documents\CursorAI\VLA_Pipeline
+cd C:\Users\<you>\Documents\CursorAI\VLM_Pipeline
 .\install.bat
 ```
 
@@ -251,7 +251,7 @@ input for the fine-tune / validation steps.
 ## 8. Project layout
 
 ```
-VLA_Pipeline/
+VLM_Pipeline/
 ├── install.bat / install.sh       # Environment setup
 ├── run.bat     / run.sh           # Launcher
 ├── config.yaml                    # All defaults; editable in Settings

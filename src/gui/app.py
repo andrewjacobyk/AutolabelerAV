@@ -23,7 +23,7 @@ class App(ctk.CTk):
     def __init__(self, config: AppConfig) -> None:
         super().__init__()
         self.config_obj = config
-        self.title("VLA Pipeline - Video Scene Captioning")
+        self.title("VLM Pipeline - Video Scene Captioning")
         self.geometry("1180x820")
         self.minsize(1000, 700)
 
@@ -40,7 +40,7 @@ class App(ctk.CTk):
         top.pack(side="top", fill="x")
         top.pack_propagate(False)
 
-        title = ctk.CTkLabel(top, text="VLA Pipeline",
+        title = ctk.CTkLabel(top, text="VLM Pipeline",
                              font=ctk.CTkFont(size=16, weight="bold"))
         title.pack(side="left", padx=14)
 

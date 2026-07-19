@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM VLA Pipeline - Windows Installer
+REM VLM Pipeline - Windows Installer
 REM Creates a Python virtual environment and installs all deps.
 REM
 REM All output is captured in logs\install.log.  On any failure
@@ -12,10 +12,10 @@ cd /d "%~dp0"
 
 if not exist "logs" mkdir "logs" >nul 2>&1
 set "LOG=logs\install.log"
-> "%LOG%" echo === VLA Pipeline install log ^| %DATE% %TIME% ===
+> "%LOG%" echo === VLM Pipeline install log ^| %DATE% %TIME% ===
 
 echo.
-echo === VLA Pipeline - Environment Setup ===
+echo === VLM Pipeline - Environment Setup ===
 echo (full log: %LOG%)
 echo.
 

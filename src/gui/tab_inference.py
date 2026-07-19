@@ -310,7 +310,7 @@ class InferenceTab(ctk.CTkFrame):
                 "- Let the download finish; closing the app restarts it.\n"
                 "- Set HUGGINGFACE_TOKEN in Settings for faster downloads.\n"
                 "- Enable Windows Developer Mode to fix symlink warnings.\n"
-                "- Check logs/vla_pipeline.log for details.",
+                "- Check logs/vlm_pipeline.log for details.",
             )
         else:
             self.progress.set_status("Download complete")
